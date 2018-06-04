@@ -1,116 +1,136 @@
 # Программа клиента
 import sys
 import time
+import logging
 from socket import *
 from errors import UsernameToLongError, ResponseCodeLenError, MandatoryKeyError, ResponseCodeError
-from jim.utils import get_message, send_message, bytes_to_dict, dict_to_bytes
+from jim.jim_class import JIMMessage, JIMReply
 from jim.config import *
-from logging_message.log_util import *
+from client_verifier import ClientVerifierBase
 
-@Log(show_params=False)
-def create_presence(account_name='Guest'):
-    if not isinstance(account_name, str):
-        raise TypeError
-    if len(account_name) > 25:
-        raise UsernameToLongError(account_name)
-    message = {
-        ACTION: PRESENCE,
-        TIME: time.time(),
-        USER: {
-            ACCOUNT_NAME: account_name
+import logging_message.client_log_config
+from logging_message.log_util import Log
+
+
+# Получаем по имени клиентский логгер, он уже нестроен в log_config
+logger = logging.getLogger('client')
+# создаем класс декоратор для логирования функций
+log = Log(logger)
+
+
+# Класс Клиент - класс, реализующий клиентскую часть системы.
+class Client(JIMMessage, JIMReply, ClientVerifierBase):
+
+    def __init__(self, addr='localhost', port=7777, mode='r'):
+        self.client = socket(AF_INET, SOCK_STREAM)
+
+        try:
+            self.addr = sys.argv[1]
+        except IndexError:
+            self.addr = addr
+        try:
+            self.port = int(sys.argv[2])
+        except IndexError:
+            self.port = port
+        except ValueError:
+            print('Порт должен быть целым числом')
+            sys.exit(0)
+        try:
+            self.mode = sys.argv[3]
+        except IndexError:
+            self.mode = mode
+
+        # Соединиться с сервером
+        self.client.connect((self.addr, self.port))
+
+    @log
+    def create_presence(self, account_name='Guest'):
+        if not isinstance(account_name, str):
+            raise TypeError
+        if len(account_name) > 25:
+            raise UsernameToLongError(account_name)
+        message = {
+            ACTION: PRESENCE,
+            TIME: time.time(),
+            USER: {
+                ACCOUNT_NAME: account_name
+            }
         }
-    }
-    return message
+        return message
 
-@Log(show_params=False)
-def translate_response(response):
-    # Передали не словарь
-    if not isinstance(response, dict):
-        raise TypeError
-    # Нету ключа response
-    if RESPONSE not in response:
-        # Ошибка нужен обязательный ключ
-        raise MandatoryKeyError(RESPONSE)
-    # получаем код ответа
-    code = response[RESPONSE]
-    # длина кода не 3 символа
-    if len(str(code)) != 3:
-        # Ошибка неверная длина кода ошибки
-        raise ResponseCodeLenError(code)
-    # неправильные коды символов
-    if code not in RESPONSE_CODES:
-        # ошибка неверный код ответа
-        raise ResponseCodeError(code)
-    # возвращаем ответ
-    return response
+    @log
+    def translate_response(self, response):
+        # Передали не словарь
+        if not isinstance(response, dict):
+            raise TypeError
+        # Нету ключа response
+        if RESPONSE not in response:
+            # Ошибка нужен обязательный ключ
+            raise MandatoryKeyError(RESPONSE)
+        # получаем код ответа
+        code = response[RESPONSE]
+        # длина кода не 3 символа
+        if len(str(code)) != 3:
+            # Ошибка неверная длина кода ошибки
+            raise ResponseCodeLenError(code)
+        # неправильные коды символов
+        if code not in RESPONSE_CODES:
+            # ошибка неверный код ответа
+            raise ResponseCodeError(code)
+        # возвращаем ответ
+        return response
 
-@Log(show_params=False)
-def create_message(message_to, text, account_name='Guest'):
-    return {ACTION: MSG, TIME: time.time(), TO: message_to, FROM: account_name, MESSAGE: text}
-
-
-@Log(show_params=False)
-def read_messages(client):
-
-    while True:
-        # читаем сообщение
-        #print('Читаю')
-        message = get_message(client)
-        if MESSAGE in message:
-            # там должно быть сообщение всем
-            print('{}: {}'.format(message[FROM], message[MESSAGE]))
-        else:
-            print(message)
+    @log
+    def create_message(self, message_to, text, account_name='Guest'):
+        return {ACTION: MSG, TIME: time.time(), TO: message_to, FROM: account_name, MESSAGE: text}
 
 
-@Log(show_params=False)
-def write_messages(client):
-    while True:
-        # Вводим сообщение с клавиатуры
-        text = input(':)>')
-        # Создаем jim сообщение
-        message = create_message('#all', text)
-        # отправляем на сервер
-        send_message(client, message)
+    @log
+    def read_messages(self):
 
+        while True:
+            # читаем сообщение
+            #print('Читаю')
+            message = self.get_message(self.client)
+            if MESSAGE in message:
+                # там должно быть сообщение всем
+                print('{}: {}'.format(message[FROM], message[MESSAGE]))
+            else:
+                print(message)
+
+
+    @log
+    def write_messages(self):
+        while True:
+            # Вводим сообщение с клавиатуры
+            text = input(':)>')
+            # Создаем jim сообщение
+            message = self.create_message('#all', text)
+            # отправляем на сервер
+            self.send_message(self.client, message)
+
+    def main(self):
+        # Создаем сообщение
+        presence = self.create_presence()
+        # Отсылаем сообщение
+        self.send_message(self.client, presence)
+        # Получаем ответ
+        response = self.get_message(self.client)
+        print(response)
+        # Проверяем ответ
+        response = self.translate_response(response)
+
+        if response['response'] == OK:
+            # в зависимости от режима мы будем или слушать или отправлять сообщения
+            if self.mode == 'r':
+                self.read_messages()
+            elif self.mode == 'w':
+                self.write_messages()
+            else:
+                raise Exception('Не верный режим чтения/записи')
 
 if __name__ == '__main__':
-    client = socket(AF_INET, SOCK_STREAM)  # Создает сокет TCP
-    mode = 'w'
-    # Получаем аргументы скрипта
-    try:
-         addr = sys.argv[1]
-    except IndexError:
-         addr = 'localhost'
-    try:
-        port = int(sys.argv[2])
-    except IndexError:
-        port = 7777
-    except ValueError:
-        print('Порт должен быть целым числом')
-        sys.exit(0)
-    try:
-        mode = sys.argv[3]
-    except IndexError:
-        mode = 'w'
-
-    # Соединиться с сервером
-    client.connect((addr, port))
-    # Создаем сообщение
-    presence = create_presence()
-    # Отсылаем сообщение
-    send_message(client, presence)
-    # Получаем ответ
-    response = get_message(client)
-    print(response)
-    # Проверяем ответ
-    response = translate_response(response)
-
-    if response['response'] == OK:
-        # в зависимости от режима мы будем или слушать или отправлять сообщения
-        if mode == 'r':
-            read_messages(client)
-        elif mode == 'w':
-            write_messages(client)
-        else:
-            raise Exception('Не верный режим чтения/записи')
+    print('Клиент запущен!')
+    # класс создает объект (экземпляр)
+    client = Client()
+    client.main()

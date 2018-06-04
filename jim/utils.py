@@ -6,7 +6,6 @@ ENCODING = 'utf-8'
 
 
 # словарь в json
-@Log(show_params=False)
 def dict_to_bytes(message_dict):
     """
     Преобразование словаря в байты
@@ -29,7 +28,6 @@ def dict_to_bytes(message_dict):
     else:
         raise TypeError
 
-@Log(show_params=False)
 def bytes_to_dict(message_bytes):
     """
     Получение словаря из байтов
@@ -57,20 +55,25 @@ def bytes_to_dict(message_bytes):
         # Передан неверный тип
         raise TypeError
 
-@Log(show_params=False)
+
 def send_message(sock, message):
     """
     Отправка сообщения
+    :param sock: сокет
+    :param message: словарь сообщения
+    :return: None
     """
     # Словарь переводим в байты
     bprescence = dict_to_bytes(message)
     # Отправляем
     sock.send(bprescence)
 
-@Log(show_params=False)
+
 def get_message(sock):
     """
     Получение сообщения
+    :param sock:
+    :return: словарь ответа
     """
     # Получаем байты
     bresponse = sock.recv(1024)
@@ -79,37 +82,5 @@ def get_message(sock):
     # возвращаем словарь
     return response
 
-@Log(show_params=False)
-def get_messages(r_clients, all_clients):
-    ''' Чтение запросов из списка клиентов
-    '''
-    responses = {}      # Словарь ответов сервера вида {сокет: запрос}
 
-    for sock in r_clients:
-        try:
-            data = sock.recv(1024)
-            data = bytes_to_dict(data)
-            responses[sock] = data
-        except:
-            print('Клиент {} {} отключился'.format(sock.fileno(), sock.getpeername()))
-            all_clients.remove(sock)
 
-    return responses
-
-@Log(show_params=False)
-def send_messages(requests, resp_message, w_clients, all_clients):
-    ''' Ответ сервера клиентам, от которых были запросы
-    '''
-
-    for sock in w_clients:
-        if sock in requests:
-            try:
-                # Подготовить и отправить ответ сервера
-                presence = requests[sock]
-                response = resp_message(presence)
-                response = bytes_to_dict(response)
-                sock.sendall(response)
-            except:                 # Сокет недоступен, клиент отключился
-                print('Клиент {} {} отключился'.format(sock.fileno(), sock.getpeername()))
-                sock.close()
-                all_clients.remove(sock)

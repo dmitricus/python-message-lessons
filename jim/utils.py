@@ -36,12 +36,13 @@ def bytes_to_dict(message_bytes):
     """
     # Если переданы байты
     if isinstance(message_bytes, bytes):
+        #print(message_bytes)
         if message_bytes:
             # Декодируем
             jmessage = message_bytes.decode(ENCODING)
             # Из json делаем словарь
             message = json.loads(jmessage)
-            #print(message)
+            print(message)
             # Если там был словарь
             if isinstance(message, dict):
                 # Возвращаем сообщение
@@ -49,8 +50,6 @@ def bytes_to_dict(message_bytes):
             else:
                 # Нам прислали неверный тип
                 raise TypeError
-        else:
-            print("Пустое сообщение!")
     else:
         # Передан неверный тип
         raise TypeError

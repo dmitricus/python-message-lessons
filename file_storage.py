@@ -1,4 +1,4 @@
-from storage import Storage
+from db.controller import Storage
 
 
 # - Дочерний класс ФайловоеХранилище - обеспечивает сохранение информации в текстовых файлах

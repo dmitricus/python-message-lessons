@@ -3,10 +3,10 @@ import logging.handlers
 import os
 
 # путь до папки где лежит этот модуль
-LOG_FOLDER_PATH = os.path.dirname('./logs/')
+LOG_FOLDER_PATH = os.path.abspath(os.path.dirname(__file__))
 # путь до файла с логом
 #CLIENT_LOG_FILE_PATH = os.path.join(LOG_FOLDER_PATH, 'client.log')
-CLIENT_LOG_FILE_PATH = os.path.join(LOG_FOLDER_PATH, 'client.log')
+CLIENT_LOG_FILE_PATH = os.path.join(LOG_FOLDER_PATH + "/logs/", 'client.log')
 
 # создаем логгер и именем client
 client_logger = logging.getLogger('client')

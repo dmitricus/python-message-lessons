@@ -1,4 +1,8 @@
-class WrongParamsError(Exception):
+class WrongInputError(Exception):
+    pass
+
+
+class WrongParamsError(WrongInputError):
     """Неверные параметры для действия"""
 
     def __init__(self, params):
@@ -8,7 +12,7 @@ class WrongParamsError(Exception):
         return 'Wrong action params: {}'.format(self.params)
 
 
-class WrongActionError(Exception):
+class WrongActionError(WrongInputError):
     """Когда передано неверное действие"""
 
     def __init__(self, action):
@@ -18,7 +22,7 @@ class WrongActionError(Exception):
         return 'Wrong action: {}'.format(self.action)
 
 
-class WrongDictError(Exception):
+class WrongDictError(WrongInputError):
     """Когда пришел неправильный словарь"""
 
     def __init__(self, input_dict):

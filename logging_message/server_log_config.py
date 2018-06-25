@@ -9,10 +9,10 @@ import logging.handlers
 import os
 
 # Папка где лежит этот файл
-LOG_FOLDER_PATH = os.path.dirname('./logs/')
+LOG_FOLDER_PATH = os.path.abspath(os.path.dirname(__file__))
 # Пусть до серверного лога
 #SERVER_LOF_FILE_PATH = os.path.join(LOG_FOLDER_PATH, 'server.log')
-SERVER_LOF_FILE_PATH = os.path.join(LOG_FOLDER_PATH, 'server.log')
+SERVER_LOF_FILE_PATH = os.path.join(LOG_FOLDER_PATH + "/logs/", 'server.log')
 
 # Быстрая настройка логгирования может быть выполнена так:
 # logging.basicConfig(filename="gui.logging_message",

@@ -6,10 +6,12 @@ import time
 import select
 from socket import socket, AF_INET, SOCK_STREAM
 from jim.utils import send_message, get_message
-from jim.core import Jim, JimMessage, JimResponse, JimResponseGetContacts, JimContactsList, JimResponseAddContacts, JimResponseDelContacts
+from jim.core import Jim, JimMessage, JimResponse, JimContactList, JimAddContact, JimDelContact
+from jim.exceptions import WrongInputError
 from jim.config import *
-from db.controller import Storage
-from db.models import User, CustomerHistory, ContactList
+from db.server_models import session
+from db.server_controller import Storage
+from db.server_errors import ContactDoesNotExist
 
 from server_verifier import ServerVerifierBase
 
@@ -21,8 +23,13 @@ logger = logging.getLogger('server')
 # создаем класс декоратор для логирования функций
 log = Log(logger)
 
+
 class Handler:
     """Обработчик сообщений, тут будет основная логика сервера"""
+    def __init__(self):
+        # сохраняем репозиторий
+        self.storage = Storage(session)
+
 
     def read_requests(self, r_clients, all_clients):
         """
@@ -49,7 +56,7 @@ class Handler:
         # Возвращаем словарь сообщений
         return messages
 
-
+    @log
     def write_responses(self, messages, w_clients, all_clients):
         """
         Отправка сообщений тем клиентам, которые их ждут
@@ -59,39 +66,67 @@ class Handler:
         :return:
         """
 
-        # Будем отправлять каждое сообщение всем
         for sock in w_clients:
+            # Будем отправлять каждое сообщение всем
             for message in messages:
                 try:
-                    if ACTION in message:
-                        if message[ACTION] == GETCONTACTS:
-                            # формируем ответ о списке контактов
-                            response, contact_list = self.get_contacts_response(message)
-                            # отправляем ответ клиенту
-                            send_message(sock, response)
-                            # задержка
-                            time.sleep(0.1)
-                            for contact_response in contact_list:
-                                send_message(sock, contact_response)
-                                # задержка
-                                time.sleep(0.1)
-                        elif message[ACTION] == ADDCONTACT:
-                            response = self.add_contact_response(message)
-                            # отправляем ответ клиенту
-                            send_message(sock, response)
-                        elif message[ACTION] == DELCONTACT:
-                            response = self.del_contact_response(message)
-                            # отправляем ответ клиенту
-                            send_message(sock, response)
-                        elif message[ACTION] == PRESENCE:
-                            # Отправить на тот сокет, который ожидает отправки
-                            send_message(sock, message)
+                    # теперь нам приходят разные сообщения, будем их обрабатывать
+                    action = Jim.from_dict(message)
+                    if action.action == GET_CONTACTS:
+                        # print('Клиент хочет добавить контакт')
+                        # нам нужен репозиторий
+                        contacts = self.storage.get_contacts(action.account_name)
+                        # формируем ответ
+                        response = JimResponse(ACCEPTED, quantity=len(contacts))
+                        # Отправляем
+                        send_message(sock, response.to_dict())
+                        # в цикле по контактам шлем сообщения
+                        for contact in contacts:
+                            message = JimContactList(contact.Name)
+                            print(message.to_dict())
+                            send_message(sock, message.to_dict())
+                    elif action.action == ADD_CONTACT:
+                        user_id = action.user_id
+                        username = action.account_name
+                        try:
+                            self.storage.add_contact(username, user_id)
+                            # шлем удачный ответ
+                            response = JimResponse(ACCEPTED)
+                            # Отправляем
+                            send_message(sock, response.to_dict())
+                        except ContactDoesNotExist as e:
+                            # формируем ошибку, такого контакта нет
+                            response = JimResponse(WRONG_REQUEST, error='Такого контакта нет')
+                            # Отправляем
+                            send_message(sock, response.to_dict())
+                    elif action.action == DEL_CONTACT:
+                        user_id = action.user_id
+                        username = action.account_name
+                        try:
+                            self.storage.del_contact(username, user_id)
+                            # шлем удачный ответ
+                            response = JimResponse(ACCEPTED)
+                            # Отправляем
+                            send_message(sock, response.to_dict())
+                        except ContactDoesNotExist as e:
+                            # формируем ошибку, такого контакта нет
+                            response = JimResponse(WRONG_REQUEST, error='Такого контакта нет')
+                            # Отправляем
+                            send_message(sock, response.to_dict())
+                    elif action.action == MSG:
+                        to = action.to
+                        client_sock = w_clients[to]
+                        send_message(client_sock, action.to_dict())
+                except WrongInputError as e:
+                    # Отправляем ошибку и текст из ошибки
+                    response = JimResponse(WRONG_REQUEST, error=str(e))
+                    send_message(sock, response.to_dict())
                 except:  # Сокет недоступен, клиент отключился
                     print('Клиент {} {} отключился'.format(sock.fileno(), sock.getpeername()))
                     sock.close()
                     all_clients.remove(sock)
 
-
+    @log
     def presence_response(self, presence_message):
         """
         Формирование ответа клиенту
@@ -100,85 +135,27 @@ class Handler:
         """
         # Делаем проверки
         try:
-            Jim.from_dict(presence_message)
+            presence = Jim.from_dict(presence_message)
+            username = presence.account_name
+            # сохраняем пользователя в базу если его там еще нет
+            if not self.storage.client_exists(username):
+                self.storage.add_client(username)
         except Exception as e:
             # Шлем код ошибки
-            response = JimResponse(400, error=str(e))
+            response = JimResponse(WRONG_REQUEST, error=str(e))
             return response.to_dict()
         else:
             # Если всё хорошо шлем ОК
-            response = JimResponse(200)
+            response = JimResponse(OK)
             return response.to_dict()
 
 
-    def get_contacts_response(self, get_contacts_message):
-        """
-        Формирование ответа клиенту
-        :param presence_message: Словарь presence запроса
-        :return: Словарь ответа
-        """
-        # Делаем проверки
-        try:
-            Jim.from_dict(get_contacts_message)
-        except Exception as e:
-            # Шлем код ошибки
-            response = JimResponseGetContacts(400, error=str(e))
-            return response.to_dict()
-        else:
-            q_contact_list, quantity = storage.select_contact_list(get_contacts_message[ACCOUNT_NAME])
-            # Если всё хорошо шлем ОК
-            response = JimResponseGetContacts(202, quantity=quantity)
-            contact_list = []
-            for user_id in q_contact_list:
-                response_contact = JimContactsList(user_id[0])
-                contact_list.append(response_contact.to_dict())
-            return response.to_dict(), contact_list
-
-
-    def add_contact_response(self, add_contacts_message):
-        """
-        Формирование ответа клиенту
-        :param presence_message: Словарь presence запроса
-        :return: Словарь ответа
-        """
-        # Делаем проверки
-        try:
-            Jim.from_dict(add_contacts_message)
-        except Exception as e:
-            # Шлем код ошибки
-            response = JimResponseAddContacts(400, error=str(e))
-            return response.to_dict()
-        else:
-            storage.insert_contact_list(add_contacts_message[ACCOUNT_NAME])
-            # Если всё хорошо шлем ОК
-            response = JimResponseAddContacts(202)
-            return response.to_dict()
-
-    def del_contact_response(self, del_contacts_message):
-        """
-        Формирование ответа клиенту
-        :param presence_message: Словарь presence запроса
-        :return: Словарь ответа
-        """
-        # Делаем проверки
-        try:
-            Jim.from_dict(del_contacts_message)
-        except Exception as e:
-            # Шлем код ошибки
-            response = JimResponseDelContacts(400, error=str(e))
-            return response.to_dict()
-        else:
-            storage.insert_contact_list(del_contacts_message[ACCOUNT_NAME])
-            # Если всё хорошо шлем ОК
-            response = JimResponseDelContacts(202)
-            return response.to_dict()
-
-# Класс Сервер - базовый класс сервера мессенджера; может иметь разных потомков - работающих с потоками или выполняющих асинхронную обработку.
 class Server:
+    """Клесс сервер"""
 
     def __init__(self, handler):
         """
-            :param handler: обработчик событий
+        :param handler: обработчик событий
         """
         self.handler = handler
         # список клиентов
@@ -223,13 +200,8 @@ class Server:
                 requests = self.handler.read_requests(r, self.clients)  # Получаем входные сообщения
                 self.handler.write_responses(requests, w, self.clients)  # Выполним отправку входящих сообщений
 
+
 if __name__ == '__main__':
-    user = User
-    customer_history = CustomerHistory
-    contact_list = ContactList
-    storage = Storage(user, customer_history, contact_list)
-
-
     try:
         addr = sys.argv[1]
     except IndexError:
@@ -241,7 +213,7 @@ if __name__ == '__main__':
     except ValueError:
         print('Порт должен быть целым числом')
         sys.exit(0)
-    print("Сервер запущен!")
+
     handler = Handler()
     server = Server(handler)
     server.bind(addr, port)

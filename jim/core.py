@@ -34,11 +34,9 @@ class Jim:
     @staticmethod
     def try_create(jim_class, input_dict):
         try:
-            #JimMessage(**input_dict)
             return jim_class(**input_dict)
         except KeyError:
             raise WrongParamsError(input_dict)
-
 
     @staticmethod
     def from_dict(input_dict):
@@ -55,6 +53,14 @@ class Jim:
             if action in ACTIONS:
                 if action == PRESENCE:
                     return Jim.try_create(JimPresence, input_dict)
+                elif action == GET_CONTACTS:
+                    return Jim.try_create(JimGetContacts, input_dict)
+                elif action == CONTACT_LIST:
+                    return Jim.try_create(JimContactList, input_dict)
+                elif action == ADD_CONTACT:
+                    return Jim.try_create(JimAddContact, input_dict)
+                elif action == DEL_CONTACT:
+                    return Jim.try_create(JimDelContact, input_dict)
                 elif action == MSG:
                     try:
                         input_dict['from_'] = input_dict['from']
@@ -62,8 +68,6 @@ class Jim:
                         raise WrongParamsError(input_dict)
                     del input_dict['from']
                     return Jim.try_create(JimMessage, input_dict)
-                elif action == GETCONTACTS:
-                    return Jim.try_create(JimGetContacts, input_dict)
             else:
                 raise WrongActionError(action)
         elif RESPONSE in input_dict:
@@ -88,14 +92,68 @@ class JimAction(Jim):
         result[TIME] = self.time
         return result
 
-        # @staticmethod
-        # def create_from_dict(action, input_dict):
-        #     if action == PRESENCE:
-        #         return JimPresence(**input_dict)
-        #     elif action == MSG:
-        #         return JimMessage(**input_dict)
-        #     else:
-        #         pass
+
+class JimAddContact(JimAction):
+    # Имя пользователя ограничено 25 символов - используем дескриптор
+    account_name = MaxLengthField('account_name', USERNAME_MAX_LENGTH)
+    # Имя пользователя ограничено 25 символов - используем дескриптор
+    user_id = MaxLengthField('user_id', USERNAME_MAX_LENGTH)
+
+    def __init__(self, account_name, user_id, time=None):
+        self.account_name = account_name
+        self.user_id = user_id
+        super().__init__(ADD_CONTACT, time)
+
+    def to_dict(self):
+        result = super().to_dict()
+        result[ACCOUNT_NAME] = self.account_name
+        result[USER_ID] = self.user_id
+        return result
+
+
+class JimDelContact(JimAction):
+    # Имя пользователя ограничено 25 символов - используем дескриптор
+    account_name = MaxLengthField('account_name', USERNAME_MAX_LENGTH)
+    # Имя пользователя ограничено 25 символов - используем дескриптор
+    user_id = MaxLengthField('user_id', USERNAME_MAX_LENGTH)
+
+    def __init__(self, account_name, user_id, time=None):
+        self.account_name = account_name
+        self.user_id = user_id
+        super().__init__(DEL_CONTACT, time)
+
+    def to_dict(self):
+        result = super().to_dict()
+        result[ACCOUNT_NAME] = self.account_name
+        result[USER_ID] = self.user_id
+        return result
+
+
+class JimContactList(JimAction):
+    user_id = MaxLengthField('user_id', USERNAME_MAX_LENGTH)
+
+    def __init__(self, user_id, time=None):
+        self.user_id = user_id
+        super().__init__(CONTACT_LIST, time)
+
+    def to_dict(self):
+        result = super().to_dict()
+        result[USER_ID] = self.user_id
+        return result
+
+
+class JimGetContacts(JimAction):
+    # Имя пользователя ограничено 25 символов - используем дескриптор
+    account_name = MaxLengthField('account_name', USERNAME_MAX_LENGTH)
+
+    def __init__(self, account_name, time=None):
+        self.account_name = account_name
+        super().__init__(GET_CONTACTS, time)
+
+    def to_dict(self):
+        result = super().to_dict()
+        result[ACCOUNT_NAME] = self.account_name
+        return result
 
 
 class JimPresence(JimAction):
@@ -159,146 +217,19 @@ class JimResponse(Jim):
     # Используем дескриптор для поля ответ от сервера
     response = ResponseField('response')
 
-    def __init__(self, response, error=None, alert=None):
+    def __init__(self, response, error=None, alert=None, quantity=None):
         self.response = response
         self.error = error
         self.alert = alert
-
-    def to_dict(self):
-        result = super().to_dict()
-        result[RESPONSE] = self.response
-        if self.error:
-            result[ERROR] = self.error
-        if self.alert:
-            result[ALERT] = self.alert
-        return result
-
-# Запрос списка контактов у сервера
-class JimGetContacts(JimAction):
-    # Имя пользователя ограничено 25 символов - используем дескриптор
-    account_name = MaxLengthField('account_name', USERNAME_MAX_LENGTH)
-
-    # __slots__ = (ACTION, ACCOUNT_NAME, TIME) - дескриптор конфилктует со слотами
-
-    def __init__(self, account_name, time=None):
-        self.account_name = account_name
-        super().__init__(GETCONTACTS, time)
-
-    def to_dict(self):
-        result = super().to_dict()
-        result[ACCOUNT_NAME] = self.account_name
-        return result
-
-# Ответ сервера клиенту успех или ошибка запроса
-class JimResponseGetContacts(Jim):
-    # __slots__ = (RESPONSE, ERROR, ALERT)
-    # Используем дескриптор для поля ответ от сервера
-    response = ResponseField('response')
-
-    def __init__(self, response, quantity=None, error=None, alert=None):
-        self.response = response
         self.quantity = quantity
-        self.error = error
-        self.alert = alert
 
     def to_dict(self):
         result = super().to_dict()
         result[RESPONSE] = self.response
-        result[QUANTITY] = self.quantity
-        if self.error:
+        if self.error is not None:
             result[ERROR] = self.error
-        if self.alert:
+        if self.alert is not None:
             result[ALERT] = self.alert
-        return result
-
-# Формируем ответ клиенту о контактах
-class JimContactsList(JimAction):
-    # Имя пользователя ограничено 25 символов - используем дескриптор
-    user_id = MaxLengthField('user_id', USERNAME_MAX_LENGTH)
-
-    # __slots__ = (ACTION, ACCOUNT_NAME, TIME) - дескриптор конфилктует со слотами
-
-    def __init__(self, user_id):
-        self.user_id = user_id
-        super().__init__(CONTACTLIST)
-
-    def to_dict(self):
-        result = super().to_dict()
-        result[USERID] = self.user_id
-        return result
-
-# Запрос на добавление контакта
-class JimAddContacts(JimAction):
-    # Имя пользователя ограничено 25 символов - используем дескриптор
-    user_id = MaxLengthField('user_id', USERNAME_MAX_LENGTH)
-
-    # __slots__ = (ACTION, ACCOUNT_NAME, TIME) - дескриптор конфилктует со слотами
-
-    def __init__(self, user_id, time=None):
-        self.user_id = user_id
-        super().__init__(ADDCONTACT, time)
-
-    def to_dict(self):
-        result = super().to_dict()
-        result[USERID] = self.user_id
-        return result
-
-# Запрос на удаление контакта
-class JimDelContacts(JimAction):
-    # Имя пользователя ограничено 25 символов - используем дескриптор
-    account_name = MaxLengthField('account_name', USERNAME_MAX_LENGTH)
-
-    # __slots__ = (ACTION, ACCOUNT_NAME, TIME) - дескриптор конфилктует со слотами
-
-    def __init__(self, account_name, time=None):
-        self.account_name = account_name
-        super().__init__(DELCONTACT, time)
-
-    def to_dict(self):
-        result = super().to_dict()
-        result[ACCOUNT_NAME] = self.account_name
-        return result
-
-# Ответ сервера клиенту успех или ошибка запроса
-class JimResponseAddContacts(Jim):
-    # __slots__ = (RESPONSE, ERROR, ALERT)
-    # Используем дескриптор для поля ответ от сервера
-    response = ResponseField('response')
-
-    def __init__(self, response, quantity=None, error=None, alert=None):
-        self.response = response
-        self.quantity = quantity
-        self.error = error
-        self.alert = alert
-
-    def to_dict(self):
-        result = super().to_dict()
-        result[RESPONSE] = self.response
-        result[QUANTITY] = self.quantity
-        if self.error:
-            result[ERROR] = self.error
-        if self.alert:
-            result[ALERT] = self.alert
-        return result
-
-# Ответ сервера клиенту успех или ошибка запроса
-class JimResponseDelContacts(Jim):
-    # __slots__ = (RESPONSE, ERROR, ALERT)
-    # Используем дескриптор для поля ответ от сервера
-    response = ResponseField('response')
-
-    def __init__(self, response, quantity=None, error=None, alert=None):
-        self.response = response
-        self.quantity = quantity
-        self.error = error
-        self.alert = alert
-
-    def to_dict(self):
-        result = super().to_dict()
-        result[RESPONSE] = self.response
-        result[QUANTITY] = self.quantity
-        if self.error:
-            result[ERROR] = self.error
-        if self.alert:
-            result[ALERT] = self.alert
+        if self.quantity is not None:
+            result[QUANTITY] = self.quantity
         return result

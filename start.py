@@ -2,9 +2,12 @@
 
 from subprocess import Popen, CREATE_NEW_CONSOLE
 import time
+from db.server_models import session
+from db.server_controller import Storage
 
 # список запущенных процессов
 p_list = []
+storage = Storage(session)
 
 while True:
     user = input("Запустить сервер и клиентов (s) / Выйти (q)")
@@ -17,18 +20,20 @@ while True:
         print('Сервер запущен')
         # ждем на всякий пожарный
         time.sleep(1)
-        # запускаем клиентов на чтение
-        for _ in range(3):
+        # Получаем всех клиетов
+        clients = storage.get_clients()
+
+        for client in clients:
             # Запускаем клиентский скрипт и добавляем его в список процессов
-            p_list.append(Popen('python client.py localhost 7777 r',
+            p_list.append(Popen('python gui\client_gui.py localhost 7777 {}'.format(client.Name),
                                  creationflags=CREATE_NEW_CONSOLE))
-        print('Клиенты на чтение запущены')
+        print('Клиенты запущены')
         # запускаем клиента на запись случайное число
-        for _ in range(2):
+        #for _ in range(2):
             # Запускаем клиентский скрипт и добавляем его в список процессов
-            p_list.append(Popen('python client.py localhost 7777 w',
-                                creationflags=CREATE_NEW_CONSOLE))
-        print('Клиенты на запись запущены')
+         #   p_list.append(Popen('python client.py localhost 7777 w',
+         #                       creationflags=CREATE_NEW_CONSOLE))
+        #print('Клиенты на запись запущены')
     elif user == 'q':
         print('Открыто процессов {}'.format(len(p_list)))
         for p in p_list:

@@ -2,8 +2,11 @@
 
 from subprocess import Popen, CREATE_NEW_CONSOLE
 import time
+import os
 from db.server_models import session
 from db.server_controller import Storage
+
+dir = os.path.abspath(os.path.dirname(__file__))
 
 # список запущенных процессов
 p_list = []
@@ -25,8 +28,7 @@ while True:
 
         for client in clients:
             # Запускаем клиентский скрипт и добавляем его в список процессов
-            p_list.append(Popen('python gui\client_gui.py localhost 7777 {}'.format(client.Name),
-                                 creationflags=CREATE_NEW_CONSOLE))
+            p_list.append(Popen('python graphic_chat.py localhost 7777 {}'.format(client.Name)))
         print('Клиенты запущены')
         # запускаем клиента на запись случайное число
         #for _ in range(2):

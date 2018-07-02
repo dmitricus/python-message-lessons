@@ -2,7 +2,9 @@
 import sys
 import time
 import logging
+import queue
 from socket import socket, AF_INET, SOCK_STREAM
+from threading import Thread
 from jim.utils import send_message, get_message
 from errors import UsernameToLongError, ResponseCodeLenError, MandatoryKeyError, ResponseCodeError
 from jim.core import JimPresence, JimMessage, Jim, JimResponse, JimDelContact, JimAddContact, JimContactList, JimGetContacts
@@ -24,6 +26,7 @@ class User:
         self.addr = addr
         self.port = port
         self.login = login
+        self.request_queue = queue.Queue()
 
     def connect(self):
         # Соединиться с сервером
@@ -70,33 +73,45 @@ class User:
         return message.to_dict()
 
     def get_contacts(self):
-        # запрос на список контактов
-        jimmessage = JimGetContacts(self.login)
-        # отправляем
-        send_message(self.sock, jimmessage.to_dict())
-        # получаем ответ
-        response = get_message(self.sock)
+        try:
+            # запрос на список контактов
+            jimmessage = JimGetContacts(self.login)
+            # отправляем
+            send_message(self.sock, jimmessage.to_dict())
+            # получаем ответ
+            #response = get_message(self.sock)
+            response = self.request_queue.get()
 
-        # приводим ответ к ответу сервера
-        response = Jim.from_dict(response)
-        quantity = response.quantity
-        # получаем имена одним списком
-        # возвращаем список имен
-        contacts = []
-        for i in range(quantity):
-            message = get_message(self.sock)
-            message = Jim.from_dict(message)
-            print(message.user_id)
-            contacts.append(message.user_id)
-        return contacts
+            # приводим ответ к ответу сервера
+            #response = Jim.from_dict(response)
+            quantity = response.quantity
+            # получаем имена одним списком
+            # возвращаем список имен
+            '''
+            contacts = []
+            for i in range(quantity):
+                message = get_message(self.sock)
+                message = Jim.from_dict(message)
+                print(message.user_id)
+                contacts.append(message.user_id)
+            '''
+            #message = self.request_queue.get()
+            contacts = self.request_queue.get()
+            # возвращаем список имен
+            contacts = contacts.user_id
+            #contacts = get_message(self.sock)
+            return contacts
+        except Exception as e:
+            print(e)
 
     def add_contact(self, username):
         # будем добавлять контакт
         message = JimAddContact(self.login, username)
         send_message(self.sock, message.to_dict())
         # получаем ответ от сервера
-        response = get_message(self.sock)
-        response = Jim.from_dict(response)
+        #response = get_message(self.sock)
+        #response = Jim.from_dict(response)
+        response = self.request_queue.get()
         return response
 
     def del_contact(self, username):
@@ -104,8 +119,9 @@ class User:
         message = JimDelContact(self.login, username)
         send_message(self.sock, message.to_dict())
         # получаем ответ от сервера
-        response = get_message(self.sock)
-        response = Jim.from_dict(response)
+        #response = get_message(self.sock)
+        #response = Jim.from_dict(response)
+        response = self.request_queue.get()
         return response
 
     def send_message(self, to, text):
@@ -179,43 +195,3 @@ class User:
             # message = self.create_message('#all', text)
             # # отправляем на сервер
             # send_message(service, message)
-
-
-if __name__ == '__main__':
-    sock = socket(AF_INET, SOCK_STREAM)  # Создать сокет TCP
-    # Пытаемся получить параметры скрипта
-    try:
-        addr = sys.argv[1]
-    except IndexError:
-        addr = 'localhost'
-    try:
-        port = int(sys.argv[2])
-    except IndexError:
-        port = 7777
-    except ValueError:
-        print('Порт должен быть целым числом')
-        sys.exit(0)
-    try:
-        mode = sys.argv[3]
-    except IndexError:
-        mode = 'w'
-    # Соединиться с сервером
-    sock.connect((addr, port))
-    # Создаем пользователя
-    user = User('Dmitricus')
-    # Создаем сообщение
-    presence = user.create_presence()
-    # Отсылаем сообщение
-    send_message(sock, presence)
-    # Получаем ответ
-    response = get_message(sock)
-    # Проверяем ответ
-    response = user.translate_response(response)
-    if response['response'] == OK:
-        # в зависимости от режима мы будем или слушать или отправлять сообщения
-        if mode == 'r':
-            user.read_messages(sock)
-        elif mode == 'w':
-            user.write_messages(sock)
-        else:
-            raise Exception('Не верный режим чтения/записи')

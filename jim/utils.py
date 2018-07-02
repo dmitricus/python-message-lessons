@@ -5,7 +5,6 @@ from logging_message.log_util import *
 ENCODING = 'utf-8'
 
 
-# словарь в json
 def dict_to_bytes(message_dict):
     """
     Преобразование словаря в байты
@@ -13,20 +12,16 @@ def dict_to_bytes(message_dict):
     :return: bytes
     """
     # Проверям, что пришел словарь
-    if isinstance(message_dict, dict):
+    if isinstance(message_dict, dict) or isinstance(message_dict, list):
         # Преобразуем словарь в json
         jmessage = json.dumps(message_dict)
         # Переводим json в байты
         bmessage = jmessage.encode(ENCODING)
         # Возвращаем байты
         return bmessage
-    elif isinstance(message_dict, json):
-        # Переводим json в байты
-        bmessage = message_dict.encode(ENCODING)
-        # Возвращаем байты
-        return bmessage
     else:
         raise TypeError
+
 
 def bytes_to_dict(message_bytes):
     """
@@ -35,21 +30,19 @@ def bytes_to_dict(message_bytes):
     :return: словарь сообщения
     """
     # Если переданы байты
+    #print('Пришли байты', message_bytes)
     if isinstance(message_bytes, bytes):
-        #print(message_bytes)
-        if message_bytes:
-            # Декодируем
-            jmessage = message_bytes.decode(ENCODING)
-            # Из json делаем словарь
-            message = json.loads(jmessage)
-            print(message)
-            # Если там был словарь
-            if isinstance(message, dict):
-                # Возвращаем сообщение
-                return message
-            else:
-                # Нам прислали неверный тип
-                raise TypeError
+        # Декодируем
+        jmessage = message_bytes.decode(ENCODING)
+        # Из json делаем словарь
+        message = json.loads(jmessage)
+        # Если там был словарь
+        if isinstance(message, dict) or isinstance(message, list):
+            # Возвращаем сообщение
+            return message
+        else:
+            # Нам прислали неверный тип
+            raise TypeError
     else:
         # Передан неверный тип
         raise TypeError

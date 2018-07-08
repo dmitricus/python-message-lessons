@@ -1,19 +1,21 @@
 # Программа клиента
 import sys
 import time
+import rsa
 import logging
 import queue
+import ssl
 from socket import socket, AF_INET, SOCK_STREAM
 from threading import Thread
 from jim.utils import send_message, get_message
 from errors import UsernameToLongError, ResponseCodeLenError, MandatoryKeyError, ResponseCodeError
-from jim.core import JimPresence, JimMessage, Jim, JimResponse, JimDelContact, JimAddContact, JimContactList, JimGetContacts
+from jim.core import JimPresence, JimMessage, Jim, JimResponse, JimDelContact, JimAddContact, JimContactList, JimGetContacts, JimMessageCrypto
 from jim.config import *
 from client_verifier import ClientVerifierBase
-
-import logging_message.client_log_config
 from logging_message.log_util import Log
 
+from auth.authenticate import client_authenticate
+from auth.crypto import decrypted_msg, encrypted_msg
 
 # Получаем по имени клиентский логгер, он уже настроен в log_config
 logger = logging.getLogger('client')
@@ -22,29 +24,47 @@ log = Log(logger)
 
 
 class User:
-    def __init__(self, login, addr, port):
+    def __init__(self, login, password, addr, port):
         self.addr = addr
         self.port = port
         self.login = login
+        self.password = password
         self.request_queue = queue.Queue()
+        (self.user_pub, self.user_priv) = rsa.newkeys(512)
+        self.user_public_keys = []
 
     def connect(self):
         # Соединиться с сервером
-        self.sock = socket(AF_INET, SOCK_STREAM)
-        self.sock.connect((self.addr, self.port))
-        # Создаем сообщение
-        presence = self.create_presence()
-        # Отсылаем сообщение
-        send_message(self.sock, presence)
-        # Получаем ответ
-        response = get_message(self.sock)
-        # Проверяем ответ
-        response = self.translate_response(response)
-        return response
+        try:
+            #self.sock = socket(AF_INET, SOCK_STREAM)
+            #self.sock = ssl.wrap_socket(socket(AF_INET, SOCK_STREAM), 'server.key', 'server.crt', True)
+            self.sock = socket(AF_INET, SOCK_STREAM)
+            self.sock = ssl.wrap_socket(self.sock, ssl_version = ssl.PROTOCOL_SSLv3)
+
+            self.sock.connect((self.addr, self.port))
+            # Аутентификация на сервере
+            client_authenticate(self.sock, secret_key)
+            # Создаем сообщение
+            presence = self.create_presence()
+            # Отсылаем сообщение
+            print(send_message(self.sock, presence))
+            # Получаем ответ
+            response = get_message(self.sock)
+            # Проверяем ответ
+            response = self.translate_response(response)
+            print("Ответ сервера: ", response)
+            return response
+        except ConnectionRefusedError as e:
+            print(e)
+            raise e
+        except Exception as e:
+            print("Ошибка в функции connect:", e)
 
     def disconnect(self):
-        self.sock.close()
-
+        try:
+            self.sock.close()
+        except Exception as e:
+            print("Ошибка в функции disconnect:", e)
     @log
     def create_presence(self):
         """
@@ -52,9 +72,10 @@ class User:
         :return: Словарь сообщения
         """
         # формируем сообщение
-        jim_presence = JimPresence(self.login)
+        jim_presence = JimPresence(self.login, self.password)
         message = jim_presence.to_dict()
         # возвращаем
+        #print(message)
         return message
 
     @log
@@ -79,30 +100,15 @@ class User:
             # отправляем
             send_message(self.sock, jimmessage.to_dict())
             # получаем ответ
-            #response = get_message(self.sock)
             response = self.request_queue.get()
-
-            # приводим ответ к ответу сервера
-            #response = Jim.from_dict(response)
             quantity = response.quantity
             # получаем имена одним списком
+            message = self.request_queue.get()
             # возвращаем список имен
-            '''
-            contacts = []
-            for i in range(quantity):
-                message = get_message(self.sock)
-                message = Jim.from_dict(message)
-                print(message.user_id)
-                contacts.append(message.user_id)
-            '''
-            #message = self.request_queue.get()
-            contacts = self.request_queue.get()
-            # возвращаем список имен
-            contacts = contacts.user_id
-            #contacts = get_message(self.sock)
-            return contacts
+            contacts = message.user_id
+            return contacts, quantity
         except Exception as e:
-            print(e)
+            print("Ошибка в функции get_contacts:", e)
 
     def add_contact(self, username):
         # будем добавлять контакт
@@ -127,6 +133,14 @@ class User:
     def send_message(self, to, text):
         message = JimMessage(to, self.login, text)
         send_message(self.sock, message.to_dict())
+
+    def send_crypto(self, to, pub_key):
+        try:
+            message = JimMessageCrypto(to, self.login, pub_key)
+            send_message(self.sock, message.to_dict())
+            print("send_crypto: Сообщение отправлено! {}".format(message.to_dict()))
+        except Exception as e:
+            print("Ошибка в функции client.send_crypto:", e)
 
     def read_messages(self, service):
         """

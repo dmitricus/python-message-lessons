@@ -54,4 +54,6 @@ class ResponseCodeError(Exception):
         self.code = code
 
     def __str__(self):
-        return 'Wrong response code: {}'.format(self.code)
+        #return 'Wrong response code: {}'.format(self.code)
+        return str(self.code)
+

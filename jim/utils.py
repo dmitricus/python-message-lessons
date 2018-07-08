@@ -1,5 +1,12 @@
 import json
-from logging_message.log_util import *
+import logging_message.server_log_config
+from logging_message.log_util import Log
+from cryptography.fernet import Fernet
+from auth.crypto import decrypted_msg, encrypted_msg
+from jim.config import *
+
+import logging
+# Получаем по имени клиентский логгер, он уже нестроен в log_config
 
 # Кодировка
 ENCODING = 'utf-8'
@@ -17,7 +24,10 @@ def dict_to_bytes(message_dict):
         jmessage = json.dumps(message_dict)
         # Переводим json в байты
         bmessage = jmessage.encode(ENCODING)
+        # Шифруем сообщение
+        #encrypted_text = encrypted_msg(bmessage, cipher_key)
         # Возвращаем байты
+        #print(encrypted_text)
         return bmessage
     else:
         raise TypeError
@@ -32,6 +42,9 @@ def bytes_to_dict(message_bytes):
     # Если переданы байты
     #print('Пришли байты', message_bytes)
     if isinstance(message_bytes, bytes):
+        # Расшифруем сообщение
+        #decrypt_text = decrypted_msg(message_bytes, cipher_key)
+        #print(decrypt_text)
         # Декодируем
         jmessage = message_bytes.decode(ENCODING)
         # Из json делаем словарь
@@ -55,10 +68,13 @@ def send_message(sock, message):
     :param message: словарь сообщения
     :return: None
     """
-    # Словарь переводим в байты
-    bprescence = dict_to_bytes(message)
-    # Отправляем
-    sock.send(bprescence)
+    try:
+        # Словарь переводим в байты
+        bprescence = dict_to_bytes(message)
+        # Отправляем
+        sock.send(bprescence)
+    except Exception as e:
+        print("Ошибка в функции utils.send_message:", e)
 
 
 def get_message(sock):
@@ -67,12 +83,18 @@ def get_message(sock):
     :param sock:
     :return: словарь ответа
     """
-    # Получаем байты
-    bresponse = sock.recv(1024)
-    # переводим байты в словарь
-    response = bytes_to_dict(bresponse)
-    # возвращаем словарь
-    return response
+    try:
+        # Получаем байты
+        bresponse = sock.recv(1024)
+        #bresponse = sock.recv(4096)
+        # переводим байты в словарь
+        if bresponse:
+            response = bytes_to_dict(bresponse)
+            # возвращаем словарь
+            return response
+    except Exception as e:
+        print("Ошибка в функции utils.get_message:", e)
+
 
 
 

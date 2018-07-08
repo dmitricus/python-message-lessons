@@ -1,5 +1,4 @@
 # Программа сервера
-from socket import *
 import sys
 import logging
 import time
@@ -8,30 +7,33 @@ from queue import Queue
 from threading import Thread
 from multiprocessing import Process
 from socket import socket, AF_INET, SOCK_STREAM
+import ssl
 from jim.utils import send_message, get_message
 from jim.core import Jim, JimMessage, JimResponse, JimContactList, JimAddContact, JimDelContact
-from jim.exceptions import WrongInputError
+from jim.exceptions import WrongInputError, ResponseCodeError
 from jim.config import *
+from functools import wraps
 from db.server_models import session
 from db.server_controller import Storage
 from db.server_errors import ContactDoesNotExist
-
-
 from server_verifier import ServerVerifierBase
-
-import logging_message.server_log_config
 from logging_message.log_util import Log
+
+from auth.authenticate import server_authenticate
+from auth.decorators import login_required
 
 # Получаем по имени клиентский логгер, он уже нестроен в log_config
 logger = logging.getLogger('server')
 # создаем класс декоратор для логирования функций
 log = Log(logger)
 
+
 class Handler:
     """Обработчик сообщений, тут будет основная логика сервера"""
     def __init__(self):
         # сохраняем репозиторий
         self.storage = Storage(session)
+
 
     def read_requests(self, names, all_clients):
         """
@@ -42,11 +44,9 @@ class Handler:
         """
         # Список входящих сообщений
         messages = []
-
         for sock in names:
             try:
                 # Получаем входящие сообщения
-
                 message = get_message(sock)
                 # Добавляем их в список
                 # В идеале нам нужно сделать еще проверку, что сообщение нужного формата прежде чем его пересылать!
@@ -82,10 +82,6 @@ class Handler:
                     # Отправляем
                     send_message(sock, response.to_dict())
                     # в цикле по контактам шлем сообщения
-                    #for contact in contacts:
-                    #    message = JimContactList(contact.Name)
-                    #    print(message.to_dict())
-                    #    send_message(sock, message.to_dict())
                     contact_names = [contact.Name for contact in contacts]
                     message = JimContactList(contact_names)
                     send_message(sock, message.to_dict())
@@ -121,17 +117,25 @@ class Handler:
                     to = action.to
                     client_sock = names[to]
                     send_message(client_sock, action.to_dict())
+                elif action.action == PUBKEY:
+                    to = action.to
+                    client_sock = names[to]
+                    send_message(client_sock, action.to_dict())
             except WrongInputError as e:
                 # Отправляем ошибку и текст из ошибки
                 response = JimResponse(WRONG_REQUEST, error=str(e))
                 send_message(sock, response.to_dict())
             except:  # Сокет недоступен, клиент отключился
-                print('Клиент {} {} отключился'.format(sock.fileno(), sock.getpeername()))
+                user = self.storage.select_sock(int(sock.fileno()))
+                print('Клиент {} № {} {} отключился'.format(user.Name, sock.fileno(), sock.getpeername()))
+                self.storage.update_is_active(user.Name, False)
+                self.storage.update_is_authenticated(user.Name, False)
+                self.storage.update_sock(user.Name, 0)
                 sock.close()
                 all_clients.remove(sock)
 
-    @log
-    def presence_response(self, presence_message):
+    #@login_required(session, "Leo")
+    def presence_response(self, presence_message, sock):
         """
         Формирование ответа клиенту
         :param presence_message: Словарь presence запроса
@@ -141,10 +145,29 @@ class Handler:
         try:
             presence = Jim.from_dict(presence_message)
             username = presence.account_name
+            password = presence.password
+            """
             # сохраняем пользователя в базу если его там еще нет
             if not self.storage.client_exists(username):
                 self.storage.add_client(username)
+            """
+            result_user, result_password = self.storage.client_exists(username, password)
+            if result_user:
+                if result_password:
+                    # тут необходимо поставить флаг что пользователь авторизован
+                    #self.storage.user_is_authenticated(username)
+                    #self.storage.user_is_active(username)
+                    self.storage.update_is_active(username, True)
+                    self.storage.update_is_authenticated(username, True)
+                    self.storage.update_sock(username, int(sock.fileno()))
+                else:
+                    # тут сообщим об ошибке, нет такого пароля или логина
+                    # Шлем код ошибки
+                    raise ResponseCodeError(WRONG_PASSWORD)
+            else:
+                raise ResponseCodeError(WRONG_LOGIN)
         except Exception as e:
+            logging.error(e)
             # Шлем код ошибки
             response = JimResponse(WRONG_REQUEST, error=str(e))
             return response.to_dict(), None
@@ -166,7 +189,12 @@ class Server:
         self.clients = []
         self.names = {}
         # сокет
-        self.sock = socket(AF_INET, SOCK_STREAM)  # Создает сокет TCP
+        #self.sock = socket(AF_INET, SOCK_STREAM)  # Создает сокет TCP
+        self.sock = ssl.wrap_socket(socket(AF_INET, SOCK_STREAM),
+                                            server_side = True,
+                                            certfile = "server.crt",
+                                            keyfile = "server.key",
+                                            ssl_version = ssl.PROTOCOL_SSLv3)
 
     def bind(self, addr, port):
         # запоминаем адрес и порт
@@ -178,15 +206,23 @@ class Server:
         self.sock.settimeout(0.2)
         print('Сервер запущен')
 
+
         while True:
             try:
                 conn, addr = self.sock.accept()  # Проверка подключений
-                # получаем сообщение от клиента
-                presence = get_message(conn)
-                # формируем ответ
-                response, client_name = self.handler.presence_response(presence)
-                # отправляем ответ клиенту
-                send_message(conn, response)
+                # Аутентификация клиента
+                if not server_authenticate(conn, secret_key):
+                    # Если не наш то закрываем соединение
+                    conn.close()
+                    return
+                else:
+                    # получаем сообщение от клиента
+                    presence = get_message(conn)
+                    print("presence сообщение: ", presence)
+                    # формируем ответ
+                    response, client_name = self.handler.presence_response(presence, conn)
+                    # отправляем ответ клиенту
+                    send_message(conn, response)
             except OSError as e:
                 pass  # timeout вышел
             else:

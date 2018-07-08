@@ -68,6 +68,13 @@ class Jim:
                         raise WrongParamsError(input_dict)
                     del input_dict['from']
                     return Jim.try_create(JimMessage, input_dict)
+                elif action == PUBKEY:
+                    try:
+                        input_dict['from_'] = input_dict['from']
+                    except KeyError:
+                        raise WrongParamsError(input_dict)
+                    del input_dict['from']
+                    return Jim.try_create(JimMessageCrypto, input_dict)
             else:
                 raise WrongActionError(action)
         elif RESPONSE in input_dict:
@@ -162,13 +169,15 @@ class JimPresence(JimAction):
 
     # __slots__ = (ACTION, ACCOUNT_NAME, TIME) - дескриптор конфилктует со слотами
 
-    def __init__(self, account_name, time=None):
+    def __init__(self, account_name, password, time=None):
         self.account_name = account_name
+        self.password = password
         super().__init__(PRESENCE, time)
 
     def to_dict(self):
         result = super().to_dict()
         result[ACCOUNT_NAME] = self.account_name
+        result[PASSWORD] = self.password
         return result
 
 
@@ -191,6 +200,23 @@ class JimMessage(JimAction):
         result[MESSAGE] = self.message
         return result
 
+class JimMessageCrypto(JimAction):
+    # __slots__ = (ACTION, TIME, TO, FROM, MESSAGE)
+    to = MaxLengthField('to', USERNAME_MAX_LENGTH)
+    from_ = MaxLengthField('from', USERNAME_MAX_LENGTH)
+
+    def __init__(self, to, from_, public_key, time=None):
+        self.to = to
+        self.from_ = from_
+        self.public_key = public_key
+        super().__init__(PUBKEY, time=time)
+
+    def to_dict(self):
+        result = super().to_dict()
+        result[TO] = self.to
+        result[FROM] = self.from_
+        result[PUBLIC_KEY] = self.public_key
+        return result
 
 class ResponseField:
     def __init__(self, name):

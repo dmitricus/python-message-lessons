@@ -1,6 +1,6 @@
 import datetime
 import os
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, create_engine
+from sqlalchemy import Column, Integer, String, BOOLEAN, ForeignKey, DateTime, create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
 
@@ -34,8 +34,12 @@ class Client(Base):
     ClientId = Column(Integer, primary_key=True)
     # Имя клиента
     Name = Column(String, unique=True)
+    Password = Column(String, unique=False)
     # Информация не обязательное поле
     Info = Column(String, nullable=True)
+    is_authenticated = Column(BOOLEAN, default=0)
+    is_active = Column(BOOLEAN, default=0)
+    Sock = Column(Integer, unique=False, default=0)
 
     client = relationship("ClientContact", backref="clients", primaryjoin="Client.ClientId==ClientContact.ClientId")
     contact = relationship("ClientContact", backref="contacts", primaryjoin="Client.ClientId==ClientContact.ContactId")

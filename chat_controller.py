@@ -1,5 +1,5 @@
 from PyQt5.QtCore import QObject, pyqtSignal
-from jim.core import Jim, JimMessage
+from jim.core import Jim, JimMessage, JimMessageCrypto
 from jim.utils import get_message
 
 
@@ -12,23 +12,28 @@ class Receiver:
     def process_message(self, message):
         pass
 
+    def process_crypto(self, message):
+        pass
+
     def poll(self):
         self.is_alive = True
         while True:
             if not self.is_alive:
                 break
-            else:
-                data = get_message(self.sock)
-                print("Testing:", data)
+            data = get_message(self.sock)
+            #print("Пришли данные: ", data)
             try:
-                if isinstance(data, dict):
-                    jm = Jim.from_dict(data)
-                    if isinstance(jm, JimMessage):
-                        self.process_message(jm)
-                    else:
-                        self.request_queue.put(jm)
+                jm = Jim.from_dict(data)
+                if isinstance(jm, JimMessage):
+                    self.process_message(jm)
+                if isinstance(jm, JimMessageCrypto):
+                    self.process_crypto(jm)
+                else:
+                    self.request_queue.put(jm)
+            except TypeError as e:
+                print("Ошибка TypeError в функции Receiver.poll:", e)
             except Exception as e:
-                print(e)
+                print("Ошибка в функции Receiver.poll:", e)
 
     def stop(self):
         self.is_alive = False
@@ -36,11 +41,12 @@ class Receiver:
 
 class ConsoleReceiver(Receiver):
     def process_message(self, message):
-        print('\n>> {}: {}'.format(message.from_, message.message))
+        print('\n>> user {}: {}'.format(message.from_, message.message))
 
 
 class GuiReceiver(Receiver, QObject):
-    gotData = pyqtSignal(str)
+    gotData = pyqtSignal(tuple)
+    gotCryptoData = pyqtSignal(tuple)
     finished = pyqtSignal(int)
 
 
@@ -49,12 +55,13 @@ class GuiReceiver(Receiver, QObject):
         QObject.__init__(self)
 
     def process_message(self, message):
-        text='{}: {}'.format(message.from_, message.message)
+        text = message.from_, message.message
         self.gotData.emit(text)
+
+    def process_crypto(self, message):
+        text = message.from_, message.public_key
+        self.gotCryptoData.emit(text)
 
     def poll(self):
         super().poll()
         self.finished.emit(0)
-
-    def stop(self):
-        super().stop()

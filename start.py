@@ -28,7 +28,7 @@ while True:
 
         for client in clients:
             # Запускаем клиентский скрипт и добавляем его в список процессов
-            p_list.append(Popen('python graphic_chat.py localhost 7777 {}'.format(client.Name)))
+            p_list.append(Popen('python graphic_chat.py localhost 7777 {} 12345'.format(client.Name)))
         print('Клиенты запущены')
         # запускаем клиента на запись случайное число
         #for _ in range(2):

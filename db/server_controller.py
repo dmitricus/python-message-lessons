@@ -1,6 +1,16 @@
 from .server_models import Client, ClientContact, CustomerHistory
 from .server_errors import ContactDoesNotExist
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import func, and_, or_, not_
+from auth.hesh import hash
+import hashlib, uuid
+from jim.config import *
+
+
+# Кодировка
+ENCODING = 'utf-8'
+
+
 
 class Storage:
     """Серверное хранилище"""
@@ -18,10 +28,60 @@ class Storage:
         self.session.add(new_item)
         self.session.commit()
 
-    def client_exists(self, username):
+    def client_exists(self, username, password=None):
         """Проверка, что клиент уже есть"""
-        result = self.session.query(Client).filter(Client.Name == username).count() > 0
+        result_user = False
+        result_password = False
+        result_user = self.session.query(Client).filter(Client.Name == username).count() > 0
+        if result_user:
+            result_user = True
+            if password:
+                hashed_password = hash(password, salt)
+                result_password = self.session.query(Client).filter(
+                    and_(Client.Name == username, Client.Password == hashed_password)).count() > 0
+        return result_user, result_password
+
+    def user_is_authenticated(self, username):
+        result = self.session.query(Client.is_authenticated).filter(Client.Name == username).one()
+        return result[0]
+
+    def user_is_active(self, username):
+        result = self.session.query(Client.is_active).filter(Client.Name == username).one()
+        return result[0]
+
+    def select_user(self, user):
+        result = self.session.query(Client).filter(Client.Name == user).first()
         return result
+
+    def update_sock(self, username, value):
+        try:
+            query = self.session.query(Client).filter(Client.Name == username). \
+                update({Client.Sock: value}, synchronize_session=False)
+            self.session.commit()
+        except SQLAlchemyError:
+            self.session.rollback()
+            return {'error': 'error'}
+        return True
+
+    def update_is_authenticated(self, username, active):
+        try:
+            query = self.session.query(Client).filter(Client.Name == username). \
+                update({Client.is_authenticated: active}, synchronize_session=False)
+            self.session.commit()
+        except SQLAlchemyError:
+            self.session.rollback()
+            return {'error': 'error'}
+        return True
+
+    def update_is_active(self, username, active):
+        try:
+            query = self.session.query(Client).filter(Client.Name == username). \
+                update({Client.is_active: active}, synchronize_session=False)
+            self.session.commit()
+        except SQLAlchemyError:
+            self.session.rollback()
+            return {'error': 'error'}
+        return True
 
     def get_client_by_username(self, username):
         """Получение клиента по имени"""
@@ -87,7 +147,7 @@ class Storage:
             if login:
                 # Выборка по логину
                 q_user = self.session.query(Client).filter_by(login=login).first()
-                return q_user.login, q_user.information
+                return q_user
             else:
                 # Все пользователи
                 q_user = self.session.query(Client).all()

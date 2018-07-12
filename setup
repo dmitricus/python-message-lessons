@@ -1,0 +1,13 @@
+# Установка PyQt5
+pip​ install​ ​PyQt5
+pip install sqlalchemy
+pip install rsa
+pip install cryptography
+pip install sphinx
+pip install wheel
+pip install cx_freeze
+
+
+python setup_server_wh.py bdist_wheel
+python setup_client_wh.py bdist_wheel
+python setup_client.py build_exe
